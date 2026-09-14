@@ -80,7 +80,7 @@ class SettingsWindow(QWidget):
 
     def init_ui(self):
         self.setWindowTitle("Настройки MicOverlay")
-        self.setFixedSize(360, 280)
+        self.setFixedSize(380, 280)
         
         layout = QVBoxLayout()
 
@@ -118,8 +118,15 @@ class SettingsWindow(QWidget):
 
         test_btn = QPushButton("▶")
         test_btn.setFixedWidth(30)
+        test_btn.setToolTip("Прослушать звук")
         test_btn.clicked.connect(self.overlay.play_alert_sound)
         sound_layout.addWidget(test_btn)
+
+        reset_btn = QPushButton("✕")
+        reset_btn.setFixedWidth(30)
+        reset_btn.setToolTip("Сбросить на звук по умолчанию")
+        reset_btn.clicked.connect(self.reset_sound)
+        sound_layout.addWidget(reset_btn)
 
         layout.addLayout(sound_layout)
 
@@ -158,6 +165,10 @@ class SettingsWindow(QWidget):
         if file_path:
             self.overlay.sound_file = file_path
             self.sound_label.setText(os.path.basename(file_path))
+
+    def reset_sound(self):
+        self.overlay.sound_file = ""
+        self.sound_label.setText("По умолчанию (Beep)")
 
     def save_settings(self):
         self.overlay.green_limit = float(self.yellow_spin.value())
