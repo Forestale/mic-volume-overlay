@@ -3,12 +3,13 @@ import os
 import json
 import numpy as np
 import sounddevice as sd
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QSpinBox, QComboBox, QPushButton, QSystemTrayIcon, QMenu
+    QSpinBox, QComboBox, QPushButton, QSystemTrayIcon, QMenu, QFileDialog
 )
 from PyQt6.QtGui import QIcon, QPixmap, QColor
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 CONFIG_FILE = "config.json"
 
@@ -23,7 +24,8 @@ def load_config():
     default_config = {
         "green_limit": -25.0,
         "yellow_limit": -12.0,
-        "device_index": None
+        "device_index": None,
+        "sound_file": ""
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -78,7 +80,7 @@ class SettingsWindow(QWidget):
 
     def init_ui(self):
         self.setWindowTitle("Настройки MicOverlay")
-        self.setFixedSize(340, 220)
+        self.setFixedSize(360, 280)
         
         layout = QVBoxLayout()
 
@@ -102,6 +104,24 @@ class SettingsWindow(QWidget):
         self.red_spin.setValue(int(self.overlay.yellow_limit))
         h_layout2.addWidget(self.red_spin)
         layout.addLayout(h_layout2)
+
+        # Выбор звукового файла
+        layout.addWidget(QLabel("Звук при превышении:"))
+        sound_layout = QHBoxLayout()
+        self.sound_label = QLabel(os.path.basename(self.overlay.sound_file) if self.overlay.sound_file else "По умолчанию (Beep)")
+        self.sound_label.setWordWrap(True)
+        sound_layout.addWidget(self.sound_label)
+
+        browse_btn = QPushButton("Обзор...")
+        browse_btn.clicked.connect(self.browse_sound)
+        sound_layout.addWidget(browse_btn)
+
+        test_btn = QPushButton("▶")
+        test_btn.setFixedWidth(30)
+        test_btn.clicked.connect(self.overlay.play_alert_sound)
+        sound_layout.addWidget(test_btn)
+
+        layout.addLayout(sound_layout)
 
         save_btn = QPushButton("Сохранить")
         save_btn.clicked.connect(self.save_settings)
@@ -131,6 +151,14 @@ class SettingsWindow(QWidget):
         except Exception as e:
             print(f"Ошибка получения списка микрофонов: {e}")
 
+    def browse_sound(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Выберите аудиофайл", "", "Аудиофайлы (*.wav *.mp3 *.ogg)"
+        )
+        if file_path:
+            self.overlay.sound_file = file_path
+            self.sound_label.setText(os.path.basename(file_path))
+
     def save_settings(self):
         self.overlay.green_limit = float(self.yellow_spin.value())
         self.overlay.yellow_limit = float(self.red_spin.value())
@@ -139,11 +167,11 @@ class SettingsWindow(QWidget):
         if selected_device is not None:
             self.overlay.change_audio_device(selected_device)
 
-        # Сохранение настроек в JSON
         config = {
             "green_limit": self.overlay.green_limit,
             "yellow_limit": self.overlay.yellow_limit,
-            "device_index": self.overlay.current_device_index
+            "device_index": self.overlay.current_device_index,
+            "sound_file": self.overlay.sound_file
         }
         save_config(config)
             
@@ -152,11 +180,17 @@ class SettingsWindow(QWidget):
 class SoundAlertOverlay(QWidget):
     def __init__(self):
         super().__init__()
-        # Загрузка конфигурации из файла
         config = load_config()
         self.green_limit = config.get("green_limit", -25.0)
         self.yellow_limit = config.get("yellow_limit", -12.0)
         self.current_device_index = config.get("device_index")
+        self.sound_file = config.get("sound_file", "")
+
+        # Плеер для кастомных звуков
+        self.player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.player.setAudioOutput(self.audio_output)
+        self.audio_output.setVolume(1.0)
 
         self.red_hold_timer = QTimer()
         self.red_hold_timer.setSingleShot(True)
@@ -211,6 +245,13 @@ class SoundAlertOverlay(QWidget):
 
         self.settings_window = None
 
+    def play_alert_sound(self):
+        if self.sound_file and os.path.exists(self.sound_file):
+            self.player.setSource(QUrl.fromLocalFile(self.sound_file))
+            self.player.play()
+        else:
+            QApplication.beep()
+
     def open_settings(self):
         if not self.settings_window:
             self.settings_window = SettingsWindow(self)
@@ -243,7 +284,7 @@ class SoundAlertOverlay(QWidget):
             bg_color = "rgba(231, 76, 60, 230)"
             if db >= self.yellow_limit and not self.is_red_held:
                 self.is_red_held = True
-                QApplication.beep()
+                self.play_alert_sound()
                 self.red_hold_timer.singleShot(1500, self.reset_red_hold)
         elif db >= self.green_limit:
             bg_color = "rgba(241, 196, 15, 200)"
